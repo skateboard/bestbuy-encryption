@@ -9,6 +9,7 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -16,10 +17,10 @@ import (
 	"time"
 )
 
-func (e *Encryption) EncryptLogin() (EncryptedLogin, bool) {
+func (e *Encryption) EncryptLogin() (EncryptedLogin, error) {
 	encryptedEmail, err := e.encryptEmail(e.Email)
 	if err != nil {
-		return EncryptedLogin{}, false
+		return EncryptedLogin{}, err
 	}
 
 	encryptedActivity, err := e.encryptUserActivity(
@@ -30,7 +31,7 @@ func (e *Encryption) EncryptLogin() (EncryptedLogin, bool) {
 		),
 	)
 	if err != nil {
-		return EncryptedLogin{}, false
+		return EncryptedLogin{}, err
 	}
 
 	encryptedUserAgent, err := e.encryptUserActivity(
@@ -40,38 +41,38 @@ func (e *Encryption) EncryptLogin() (EncryptedLogin, bool) {
 		),
 	)
 	if err != nil {
-		return EncryptedLogin{}, false
+		return EncryptedLogin{}, err
 	}
 
 	return EncryptedLogin{
 		EncryptedEmail:        encryptedEmail,
 		EncryptedUserActivity: encryptedActivity,
 		EncryptedUserAgent:    encryptedUserAgent,
-	}, true
+	}, nil
 }
 
 func (e *Encryption) getCSIData(keyClass string) (CSIData, error) {
-	request, requestError := http.NewRequest("GET",fmt.Sprintf("https://www.bestbuy.com/api/csiservice/v2/key/%s", keyClass), nil)
+	request, requestError := http.NewRequest("GET", fmt.Sprintf("https://www.bestbuy.com/api/csiservice/v2/key/%s", keyClass), nil)
 	if requestError != nil {
 		return CSIData{}, requestError
 	}
 
 	request.Header = http.Header{
-		"pragma": {"no-cache"},
-		"cache-control": {"no-cache"},
-		"sec-ch-ua": {""},
-		"dnt": {"1"},
-		"sec-ch-ua-mobile": {"?0"},
-		"user-agent": {e.UserAgent},
+		"pragma":             {"no-cache"},
+		"cache-control":      {"no-cache"},
+		"sec-ch-ua":          {""},
+		"dnt":                {"1"},
+		"sec-ch-ua-mobile":   {"?0"},
+		"user-agent":         {e.UserAgent},
 		"sec-ch-ua-platform": {""},
-		"content-type": {"application/json"},
-		"accept": {"*/*"},
-		"sec-fetch-site": {"same-origin"},
-		"sec-fetch-mode": {"cors"},
-		"sec-fetch-dest": {"empty"},
-		"referer": {"https://www.bestbuy.com/identity/signin"},
-		"accept-encoding": {"gzip, deflate, br"},
-		"accept-language": {"en-US,en;q=0.9"},
+		"content-type":       {"application/json"},
+		"accept":             {"*/*"},
+		"sec-fetch-site":     {"same-origin"},
+		"sec-fetch-mode":     {"cors"},
+		"sec-fetch-dest":     {"empty"},
+		"referer":            {"https://www.bestbuy.com/identity/signin"},
+		"accept-encoding":    {"gzip, deflate, br"},
+		"accept-language":    {"en-US,en;q=0.9"},
 	}
 
 	response, responseError := e.Client.Do(request)
@@ -111,6 +112,42 @@ func (e *Encryption) encryptEmail(email string) (string, error) {
 	}
 
 	return e.encrypt(email, csiData, true), nil
+}
+
+func (e *Encryption) EncryptCard(cardNumber string) (string, error) {
+	csiData, err := e.getCSIData("tas")
+	if err != nil {
+		return "", err
+	}
+
+	data := fmt.Sprintf("00960001%s", cardNumber)
+
+	encrypted := e.encryptPayment(cardNumber, data, csiData)
+	if encrypted == nil {
+		return "", errors.New("failed to encrypt payment method")
+	}
+
+	return *encrypted, nil
+}
+
+func (e *Encryption) encryptPayment(cardNumber, payload string, data CSIData) *string {
+	rsaKey := getPublicKey(data)
+	if rsaKey == nil {
+		return nil
+	}
+	data.RsaPublicKey = rsaKey
+
+	ciphertext := encryptPayload(payload, data, true)
+
+	n := len(cardNumber)
+	v := fmt.Sprintf(
+		"%s:3:%s:%s",
+		ciphertext,
+		data.KeyID,
+		cardNumber[0:6]+strings.Repeat("0", n-9)+cardNumber[n-4:],
+	)
+
+	return &v
 }
 
 func (e *Encryption) encrypt(payload string, data CSIData, useSha1 bool) string {

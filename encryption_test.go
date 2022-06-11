@@ -14,15 +14,22 @@ func TestEncryption(t *testing.T) {
 	enc := Encryption{
 		Email:     "test@gmail.com",
 		UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36",
-		Client:   	client,
+		Client:    client,
 	}
 
-	encrypted, success := enc.EncryptLogin()
-	if !success {
-		t.Error("Failed to encrypt login")
+	encrypted, err := enc.EncryptLogin()
+	if err != nil {
+		t.Error(err)
 	}
 
 	fmt.Println(encrypted.EncryptedEmail)
+	fmt.Println(encrypted.EncryptedUserAgent)
 	fmt.Println(encrypted.EncryptedUserActivity)
-	fmt.Println(encrypted.EncryptedUserActivity)
+
+	paymentMethod, err := enc.EncryptCard("4111111111111111")
+	if err != nil {
+		t.Error(err)
+	}
+
+	fmt.Println(paymentMethod)
 }
