@@ -1,2 +1,2 @@
 # Bestbuy Encryption
-a small library to help with bestbuy encryption for login
+a small library to help with bestbuy encryption
